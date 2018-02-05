@@ -94,6 +94,7 @@ struct netmap_ring {
 	uint32_t	flags;
 
 	struct timeval	ts;		/* (k) time of last *sync() */
+
 	struct netmap_slot slot[0];	/* array of slots. */
 	...;
 };
@@ -175,8 +176,6 @@ static struct nm_desc *nm_open(const char *ifname, const struct nmreq *req, uint
 static int nm_close(struct nm_desc *);
 static int nm_mmap(struct nm_desc *, const struct nm_desc *);
 static int nm_parse(const char *ifname, struct nm_desc *d, char *err);
-static inline uint32_t nm_ring_next(struct netmap_ring *r, uint32_t i);
-static inline int nm_ring_empty(struct netmap_ring *ring);
 static int nm_inject(struct nm_desc *d, const void *buf, size_t size);
 static u_char * nm_nextpkt(struct nm_desc *d, struct nm_pkthdr *hdr);
 char* netmap_buf(struct netmap_ring* ring, uint32_t index);
