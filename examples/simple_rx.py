@@ -1,39 +1,55 @@
-from pprint import pprint
 from _pynetmap import lib, ffi
 import select
-import time
+import argparse
 
 def insp(d):
-    return {k:getattr(d, k) for k in dir(d)}
-
-IFNAME = 'netmap:ve0b'
+    return {k: getattr(d, k) for k in dir(d)}
 
 
-ifname = ffi.new('char[]', IFNAME)
-nm_desc = ffi.new('struct nm_desc*')
-ring = ffi.new('struct netmap_ring*')
+def get_avail(ring):
+    if ring.tail < ring.cur:
+        return ring.tail - ring.cur + ring.num_slots
+    else:
+        return ring.tail - ring.cur
 
-nm_desc = lib.nm_open(ifname, ffi.NULL, 0, ffi.NULL)
-rxr = lib.netmap_rxring(nm_desc.nifp, 0)
-pprint(insp(rxr))
-
-poller = select.poll()
-print poller.register(nm_desc.fd, select.POLLIN)
-
-ts = time.time()
-cnt, thr = 0, 10**7
-while 1:
-    events = poller.poll(-1)
-    while not lib.nm_ring_empty(rxr):
-        i = ring.cur
-        buf = lib.netmap_buf(rxr, i)
-        rxr.head = rxr.cur = lib.nm_ring_next(rxr, i)
-        cnt += 1
-        if cnt >= thr:
-            now = time.time()
-            delta = now - ts
-            print float(cnt/delta) / 1000000
-            cnt, ts = 0, now
+def ring_next(r, cur, move=True):
+    i = cur + 1
+    if i == r.num_slots: 
+        i = 0
+    if move:
+        r.cur = r.head = i
+    return i
 
 
-lib.nm_close(nm_desc)
+def get_buf(r, cur):
+    base_ptr = ffi.cast('char*', r) + r.buf_ofs
+    buf_ptr = base_ptr + r.slot[cur].buf_idx * r.nr_buf_size
+    return buf_ptr
+
+
+def process_batch(r):
+    processed, i, tail = 0, r.cur, r.tail
+    while i != tail:
+        buf_ptr = get_buf(r, i)
+        i = ring_next(r, i)
+        processed += 1
+    return processed
+
+
+
+def process(iname):
+    nm_desc = lib.nm_open(iname, ffi.NULL, 0, ffi.NULL)
+    ring = lib.netmap_rxring(nm_desc.nifp, 0)
+    poller = select.poll()
+    poller.register(nm_desc.fd, select.POLLIN)
+    while 1:
+        poller.poll(-1)
+        processed = process_batch(ring)
+    lib.nm_close(nm_desc)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', '--interface', default='netmap:p{0')
+    args = parser.parse_args()
+    process(args.interface)
