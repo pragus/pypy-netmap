@@ -20,6 +20,28 @@ struct timeval {
 #define	NETMAP_MAX_API	...
 #define NM_CACHE_ALIGN	...
 
+#define	NS_BUF_CHANGED	0x0001	/* buf_idx changed */
+#define	NS_REPORT	0x0002	/* ask the hardware to report results */
+#define	NS_FORWARD	0x0004	/* pass packet 'forward' */
+#define	NS_NO_LEARN	0x0008	/* disable bridge learning */
+#define	NS_INDIRECT	0x0010	/* userspace buffer */
+#define	NS_MOREFRAG	0x0020	/* packet has more fragments */
+
+#define	NR_TIMESTAMP	0x0002		/* set timestamp on *sync() */
+#define	NR_FORWARD	0x0004		/* enable NS_FORWARD for ring */
+#define NR_MONITOR_TX	0x100
+#define NR_MONITOR_RX	0x200
+#define NR_ZCOPY_MON	0x400
+#define NR_EXCLUSIVE	0x800
+#define NR_PTNETMAP_HOST	0x1000
+#define NR_RX_RINGS_ONLY	0x2000
+#define NR_TX_RINGS_ONLY	0x4000
+#define NR_ACCEPT_VNET_HDR	0x8000
+#define NR_DO_RX_POLL		0x10000
+#define NR_NO_TX_POLL		0x20000
+#define NIOCCTRL	...
+#define NIOCTXSYNC	...
+#define NIOCRXSYNC	...
 
 
 struct netmap_slot {
@@ -33,26 +55,10 @@ struct netmap_if {
  char ni_name[16]; /* name of the interface. */
  const uint32_t ni_version; /* API version, currently unused */
  const uint32_t ni_flags; /* properties */
- /*
-	 * The number of packet rings available in netmap mode.
-	 * Physical NICs can have different numbers of tx and rx rings.
-	 * Physical NICs also have a 'host' ring pair.
-	 * Additionally, clients can request additional ring pairs to
-	 * be used for internal communication.
-	 */
  const uint32_t ni_tx_rings; /* number of HW tx rings */
  const uint32_t ni_rx_rings; /* number of HW rx rings */
  uint32_t ni_bufs_head; /* head index for extra bufs */
  uint32_t ni_spare1[5];
- /*
-	 * The following array contains the offset of each netmap ring
-	 * from this structure, in the following order:
-	 * NIC tx rings (ni_tx_rings); host tx ring (1); extra tx rings;
-	 * NIC rx rings (ni_rx_rings); host tx ring (1); extra rx rings.
-	 *
-	 * The area is filled up by the kernel on NIOCREGIF,
-	 * and then only read by userspace code.
-	 */
  const ssize_t ring_ofs[0];
 };
 
@@ -142,19 +148,13 @@ struct nm_desc {
  void *mem;
  uint32_t memsize;
  int done_mmap; /* set if mem is the result of mmap */
+
+
  struct netmap_if * const nifp;
  uint16_t first_tx_ring, last_tx_ring, cur_tx_ring;
  uint16_t first_rx_ring, last_rx_ring, cur_rx_ring;
  struct nmreq req; /* also contains the nr_name = ifname */
  struct nm_pkthdr hdr;
- /*
-	 * The memory contains netmap_if, rings and then buffers.
-	 * Given a pointer (e.g. to nm_inject) we can compare with
-	 * mem/buf_start/buf_end to tell if it is a buffer or
-	 * some other descriptor in our region.
-	 * We also store a pointer to some ring as it helps in the
-	 * translation from buffer indexes to addresses.
-	 */
  struct netmap_ring * const some_ring;
  void * const buf_start;
  void * const buf_end;
@@ -172,12 +172,11 @@ struct nm_desc {
 };
 
 
+
 static struct nm_desc *nm_open(const char *ifname, const struct nmreq *req, uint64_t flags, const struct nm_desc *arg);
 static int nm_close(struct nm_desc *);
 static int nm_mmap(struct nm_desc *, const struct nm_desc *);
 static int nm_parse(const char *ifname, struct nm_desc *d, char *err);
 static int nm_inject(struct nm_desc *d, const void *buf, size_t size);
-static u_char * nm_nextpkt(struct nm_desc *d, struct nm_pkthdr *hdr);
-char* netmap_buf(struct netmap_ring* ring, uint32_t index);
 struct netmap_ring* netmap_rxring(struct netmap_if* nifp, uint32_t index);
 struct netmap_ring* netmap_txring(struct netmap_if* nifp, uint32_t index);

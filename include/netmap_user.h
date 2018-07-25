@@ -105,7 +105,8 @@
 
 #define NETMAP_IF(_base, _ofs)	_NETMAP_OFFSET(struct netmap_if *, _base, _ofs)
 
-#define NETMAP_TXRING(nifp, index) _NETMAP_OFFSET(struct netmap_ring *, nifp, (nifp)->ring_ofs[index] )
+#define NETMAP_TXRING(nifp, index) _NETMAP_OFFSET(struct netmap_ring *, \
+	nifp, (nifp)->ring_ofs[index] )
 
 #define NETMAP_RXRING(nifp, index) _NETMAP_OFFSET(struct netmap_ring *,	\
 	nifp, (nifp)->ring_ofs[index + (nifp)->ni_tx_rings + 1] )
@@ -269,8 +270,6 @@ struct nm_desc {
  * to multiple of 64 bytes and is often faster than dealing
  * with other odd sizes. We assume there is enough room
  * in the source and destination buffers.
- *
- * XXX only for multiples of 64 bytes, non overlapped.
  */
 static inline void
 nm_pkt_copy(const void *_src, void *_dst, int l)
@@ -278,7 +277,7 @@ nm_pkt_copy(const void *_src, void *_dst, int l)
 	const uint64_t *src = (const uint64_t *)_src;
 	uint64_t *dst = (uint64_t *)_dst;
 
-	if (unlikely(l >= 1024)) {
+	if (unlikely(l >= 1024 || l % 64)) {
 		memcpy(dst, src, l);
 		return;
 	}
@@ -1028,20 +1027,35 @@ nm_inject(struct nm_desc *d, const void *buf, size_t size)
 	for (c = 0; c < n ; c++, ri++) {
 		/* compute current ring to use */
 		struct netmap_ring *ring;
-		uint32_t i, idx;
+		uint32_t i, j, idx;
+		size_t rem;
 
 		if (ri > d->last_tx_ring)
 			ri = d->first_tx_ring;
 		ring = NETMAP_TXRING(d->nifp, ri);
-		if (nm_ring_empty(ring)) {
-			continue;
+		rem = size;
+		j = ring->cur;
+		while (rem > ring->nr_buf_size && j != ring->tail) {
+			rem -= ring->nr_buf_size;
+			j = nm_ring_next(ring, j);
 		}
+		if (j == ring->tail && rem > 0)
+			continue;
 		i = ring->cur;
+		while (i != j) {
+			idx = ring->slot[i].buf_idx;
+			ring->slot[i].len = ring->nr_buf_size;
+			ring->slot[i].flags = NS_MOREFRAG;
+			nm_pkt_copy(buf, NETMAP_BUF(ring, idx), ring->nr_buf_size);
+			i = nm_ring_next(ring, i);
+			buf = (char *)buf + ring->nr_buf_size;
+		}
 		idx = ring->slot[i].buf_idx;
-		ring->slot[i].len = size;
-		nm_pkt_copy(buf, NETMAP_BUF(ring, idx), size);
-		d->cur_tx_ring = ri;
+		ring->slot[i].len = rem;
+		ring->slot[i].flags = 0;
+		nm_pkt_copy(buf, NETMAP_BUF(ring, idx), rem);
 		ring->head = ring->cur = nm_ring_next(ring, i);
+		d->cur_tx_ring = ri;
 		return size;
 	}
 	return 0; /* fail */
