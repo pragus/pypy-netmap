@@ -43,6 +43,51 @@ struct timeval {
 #define NIOCTXSYNC	...
 #define NIOCRXSYNC	...
 
+struct iphdr
+  {
+    unsigned int ihl:4;
+    unsigned int version:4;
+    uint8_t tos;
+    uint16_t tot_len;
+    uint16_t id;
+    uint16_t frag_off;
+    uint8_t ttl;
+    uint8_t protocol;
+    uint16_t check;
+    uint32_t saddr;
+    uint32_t daddr;
+    /*The options start here. */
+  };
+
+
+struct ethhdr {
+	unsigned char	h_dest[6];	/* destination eth addr	*/
+	unsigned char	h_source[6];	/* source ether addr	*/
+	uint16_t            h_proto;		/* packet type ID field	*/
+	...;
+};
+
+
+struct udphdr
+{
+  union
+  {
+    struct
+    {
+      uint16_t uh_sport;	/* source port */
+      uint16_t uh_dport;	/* destination port */
+      uint16_t uh_ulen;		/* udp length */
+      uint16_t uh_sum;		/* udp checksum */
+    };
+    struct
+    {
+      uint16_t source;
+      uint16_t dest;
+      uint16_t len;
+      uint16_t check;
+    };
+  };
+};
 
 struct netmap_slot {
 	uint32_t buf_idx;	/* buffer index */

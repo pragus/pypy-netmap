@@ -37,6 +37,7 @@ Icmp = make_tuple(dpkt.icmp.ICMP)
 Ip6 = make_tuple(dpkt.ip6.IP6)
 Icmp6 = make_tuple(dpkt.icmp6.ICMP6)
 
+
 def insp(d):
     return {k: getattr(d, k) for k in dir(d)}
 
@@ -69,6 +70,14 @@ def get_buf(r, buf_idx):
     return buf_ptr
 
 
+def swap16(v):
+    return ((v & 0xFF) << 8) | ((v >> 8) & 0xFF)
+
+
+def swap32(v):
+    return ((v & 0xFF) << 24) | ((v & 0xFF00) << 8) | ((v >> 8) & 0xFF00) | ((v >> 24) & 0xFF)
+
+
 def process_slot(r, s):
     s.flags |= netmap.NS_FORWARD
     buf = ffi.buffer(get_buf(r, s.buf_idx), s.len)
@@ -80,18 +89,26 @@ def process_slot(r, s):
         offset += Ip.struct.size
         if ip.p == dpkt.ip.IP_PROTO_UDP:
             udp = Udp.cls_unpack_from(buf[offset:])
-        elif ip.p == dpkt.ip.IP_PROTO_TCP:
-            tcp = Tcp.cls_unpack_from(buf[offset:])
-        elif ip.p == dpkt.ip.IP_PROTO_ICMP:
-            icmp = Icmp.cls_unpack_from(buf[offset:])
-            s.flags ^= netmap.NS_FORWARD
+
+
+def process_slot_fast(r, s):
+    s.flags |= netmap.NS_FORWARD
+    buf_ptr = get_buf(r, s.buf_idx)
+    ethhdr = ffi.cast('struct ethhdr*', buf_ptr)
+    offset = Eth.struct.size
+    if swap16(ethhdr.h_proto) == dpkt.ethernet.ETH_TYPE_IP:
+        iphdr = ffi.cast('struct iphdr*', buf_ptr + offset)
+        offset += Ip.struct.size
+        if iphdr.protocol == dpkt.ip.IP_PROTO_UDP:
+            udphdr = ffi.cast('struct udphdr*', buf_ptr + offset)
+            port = swap16(udphdr.uh_sport)
 
 
 def process_ring(r):
     processed, i, tail = 0, r.cur, r.tail
     while i != tail:
         slot = r.slot[i]
-        process_slot(r, slot)
+        process_slot_fast(r, slot)
         i = ring_next(r, i)
         processed += 1
     return processed
