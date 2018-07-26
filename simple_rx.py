@@ -1,6 +1,21 @@
 from _pynetmap import lib, ffi
 import select
 import argparse
+import dpkt
+import struct
+from collections import namedtuple
+
+
+def make_tuple(cls):
+    clsTuple = namedtuple(cls.__name__, [x[0].replace('_', '') for x in cls.__hdr__])
+    clsStruct = struct.Struct('!' + ''.join([x[1] for x in cls.__hdr__]))
+    return clsTuple, clsStruct
+
+
+EthCls, EthStruct = make_tuple(dpkt.ethernet.Ethernet)
+IpCls, IpStruct = make_tuple(dpkt.ip.IP)
+UdpCls, UdpStruct = make_tuple(dpkt.udp.UDP)
+TcpCls, TcpStruct = make_tuple(dpkt.tcp.TCP)
 
 
 def insp(d):
@@ -16,7 +31,7 @@ def get_avail(ring):
 
 def ring_next(r, cur, move=True):
     i = cur + 1
-    if i == r.num_slots: 
+    if i == r.num_slots:
         i = 0
     if move:
         r.cur = r.head = i
@@ -36,27 +51,33 @@ def get_buf(r, buf_idx):
 
 
 def process_slot(r, s):
-    s.flags |= lib.NS_FORWARD
     buf_ptr = get_buf(r, s.buf_idx)
-    print repr(ffi.buffer(buf_ptr, s.len)[:])
+    buf = ffi.buffer(buf_ptr, s.len)
+    eth = EthCls(*EthStruct.unpack_from(buf))
+    if eth.type == dpkt.ethernet.ETH_TYPE_IP:
+        offset = EthStruct.size
+        ip = IpCls(*IpStruct.unpack_from(buf, offset=offset))
+        if ip.p == dpkt.ip.IP_PROTO_UDP:
+            offset += UdpStruct.size
+            udp = UdpCls(*UdpStruct.unpack_from(buf, offset=offset))
+
+        if ip.p == dpkt.ip.IP_PROTO_TCP:
+            offset += TcpStruct.size
+            tcp = TcpCls(*TcpStruct.unpack_from(buf, offset=offset))
+
 
 def process_ring(r):
     processed, i, tail = 0, r.cur, r.tail
     while i != tail:
         process_slot(r, r.slot[i])
+        r.slot[i].flags |= lib.NS_FORWARD
         i = ring_next(r, i)
         processed += 1
     return processed
 
 
-
 def process(iname):
     nm_desc = lib.nm_open(iname, ffi.NULL, 0, ffi.NULL)
-    ring = lib.netmap_rxring(nm_desc.nifp, 0)
-    host = lib.netmap_rxring(nm_desc.nifp, nm_desc.last_rx_ring)
-    print 'nm_desc: ', insp(nm_desc)
-    print 'ring: ', insp(ring)
-    print 'host: ', insp(host)
     poller = select.poll()
     poller.register(nm_desc.fd, select.POLLIN)
     while 1:
