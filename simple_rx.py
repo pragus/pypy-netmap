@@ -6,17 +6,30 @@ import struct
 from collections import namedtuple
 
 
+class TypeStruct:
+    def __init__(self, Tcls, Tstruct):
+        self.cls = Tcls
+        self.struct = Tstruct
+
+    def cls_unpack_from(self, *args, **kwargs):
+        return self.cls(*self.struct.unpack_from(*args, **kwargs))
+
+
+
 def make_tuple(cls):
     clsTuple = namedtuple(cls.__name__, [x[0].replace('_', '') for x in cls.__hdr__])
     clsStruct = struct.Struct('!' + ''.join([x[1] for x in cls.__hdr__]))
-    return clsTuple, clsStruct
+    return TypeStruct(clsTuple, clsStruct)
 
 
-EthCls, EthStruct = make_tuple(dpkt.ethernet.Ethernet)
-IpCls, IpStruct = make_tuple(dpkt.ip.IP)
-UdpCls, UdpStruct = make_tuple(dpkt.udp.UDP)
-TcpCls, TcpStruct = make_tuple(dpkt.tcp.TCP)
+Eth = make_tuple(dpkt.ethernet.Ethernet)
+Ip = make_tuple(dpkt.ip.IP)
+Udp = make_tuple(dpkt.udp.UDP)
+Tcp = make_tuple(dpkt.tcp.TCP)
+Icmp = make_tuple(dpkt.icmp.ICMP)
 
+Ip6 = make_tuple(dpkt.ip6.IP6)
+Icmp6 = make_tuple(dpkt.icmp6.ICMP6)
 
 def insp(d):
     return {k: getattr(d, k) for k in dir(d)}
@@ -51,26 +64,32 @@ def get_buf(r, buf_idx):
 
 
 def process_slot(r, s):
+    s.flags |= lib.NS_FORWARD
     buf_ptr = get_buf(r, s.buf_idx)
     buf = ffi.buffer(buf_ptr, s.len)
-    eth = EthCls(*EthStruct.unpack_from(buf))
+    eth = Eth.cls_unpack_from(buf)
+    offset = Eth.struct.size
     if eth.type == dpkt.ethernet.ETH_TYPE_IP:
-        offset = EthStruct.size
-        ip = IpCls(*IpStruct.unpack_from(buf, offset=offset))
+        ip = Ip.cls_unpack_from(buf, offset=offset)
         if ip.p == dpkt.ip.IP_PROTO_UDP:
-            offset += UdpStruct.size
-            udp = UdpCls(*UdpStruct.unpack_from(buf, offset=offset))
-
+            offset += Udp.struct.size
+            udp = Udp.cls_unpack_from(buf, offset=offset)
         if ip.p == dpkt.ip.IP_PROTO_TCP:
-            offset += TcpStruct.size
-            tcp = TcpCls(*TcpStruct.unpack_from(buf, offset=offset))
+            offset += Tcp.struct.size
+            tcp = Tcp.cls_unpack_from(buf, offset=offset)
+        if ip.p == dpkt.ip.IP_PROTO_ICMP:
+            offset += Icmp.struct.size
+            icmp = Icmp.cls_unpack_from(buf, offset=offset)
+            s.flags ^= lib.NS_FORWARD
+    if eth.type == dpkt.ethernet.ETH_TYPE_IP6:
+        ip6 = Ip6.cls_unpack_from(buf, offset=offset)
+
 
 
 def process_ring(r):
     processed, i, tail = 0, r.cur, r.tail
     while i != tail:
         process_slot(r, r.slot[i])
-        r.slot[i].flags |= lib.NS_FORWARD
         i = ring_next(r, i)
         processed += 1
     return processed
