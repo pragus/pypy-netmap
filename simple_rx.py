@@ -1,4 +1,5 @@
-from _pynetmap import lib, ffi
+from _pynetmap import ffi
+from _pynetmap import lib as netmap
 import select
 import argparse
 import dpkt
@@ -14,6 +15,8 @@ class TypeStruct:
     def cls_unpack_from(self, *args, **kwargs):
         return self.cls(*self.struct.unpack_from(*args, **kwargs))
 
+    def cls_pack_into(self, *args, **kwargs):
+        return self.cls.pack_into(*args, **kwargs)
 
 
 def make_tuple(cls):
@@ -64,7 +67,7 @@ def get_buf(r, buf_idx):
 
 
 def process_slot(r, s):
-    s.flags |= lib.NS_FORWARD
+    s.flags |= netmap.NS_FORWARD
     buf_ptr = get_buf(r, s.buf_idx)
     buf = ffi.buffer(buf_ptr, s.len)
     eth = Eth.cls_unpack_from(buf)
@@ -80,7 +83,7 @@ def process_slot(r, s):
         if ip.p == dpkt.ip.IP_PROTO_ICMP:
             offset += Icmp.struct.size
             icmp = Icmp.cls_unpack_from(buf, offset=offset)
-            s.flags ^= lib.NS_FORWARD
+            s.flags ^= netmap.NS_FORWARD
     if eth.type == dpkt.ethernet.ETH_TYPE_IP6:
         ip6 = Ip6.cls_unpack_from(buf, offset=offset)
 
@@ -96,18 +99,18 @@ def process_ring(r):
 
 
 def process(iname):
-    nm_desc = lib.nm_open(iname, ffi.NULL, 0, ffi.NULL)
+    nm_desc = netmap.nm_open(iname, ffi.NULL, 0, ffi.NULL)
     poller = select.poll()
     poller.register(nm_desc.fd, select.POLLIN)
     while 1:
         poller.poll(-1)
         idx = 0
         while idx <= nm_desc.last_rx_ring:
-            r = lib.netmap_rxring(nm_desc.nifp, idx)
-            r.flags = lib.NR_FORWARD
+            r = netmap.netmap_rxring(nm_desc.nifp, idx)
+            r.flags = netmap.NR_FORWARD
             processed = process_ring(r)
             idx += 1
-    lib.nm_close(nm_desc)
+    netmap.nm_close(nm_desc)
 
 
 if __name__ == "__main__":
