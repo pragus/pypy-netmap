@@ -12,10 +12,13 @@ class TypeStruct:
         self.cls = Tcls
         self.struct = Tstruct
 
+    def unpack_from(self, *args, **kwargs):
+        return self.struct.unpack_from(*args, **kwargs)
+
     def cls_unpack_from(self, *args, **kwargs):
         return self.cls(*self.struct.unpack_from(*args, **kwargs))
 
-    def cls_pack_into(self, *args, **kwargs):
+    def pack_into(self, *args, **kwargs):
         return self.cls.pack_into(*args, **kwargs)
 
 
@@ -73,19 +76,19 @@ def process_slot(r, s):
     eth = Eth.cls_unpack_from(buf)
     offset = Eth.struct.size
     if eth.type == dpkt.ethernet.ETH_TYPE_IP:
-        ip = Ip.cls_unpack_from(buf, offset=offset)
+        ip = Ip.cls_unpack_from(buf, offset)
         if ip.p == dpkt.ip.IP_PROTO_UDP:
             offset += Udp.struct.size
-            udp = Udp.cls_unpack_from(buf, offset=offset)
-        if ip.p == dpkt.ip.IP_PROTO_TCP:
+            udp = Udp.cls_unpack_from(buf, offset)
+        elif ip.p == dpkt.ip.IP_PROTO_TCP:
             offset += Tcp.struct.size
-            tcp = Tcp.cls_unpack_from(buf, offset=offset)
+            tcp = Tcp.cls_unpack_from(buf, offset)
         if ip.p == dpkt.ip.IP_PROTO_ICMP:
             offset += Icmp.struct.size
-            icmp = Icmp.cls_unpack_from(buf, offset=offset)
+            icmp = Icmp.cls_unpack_from(buf, offset)
             s.flags ^= netmap.NS_FORWARD
     if eth.type == dpkt.ethernet.ETH_TYPE_IP6:
-        ip6 = Ip6.cls_unpack_from(buf, offset=offset)
+        ip6 = Ip6.cls_unpack_from(buf, offset)
 
 
 
