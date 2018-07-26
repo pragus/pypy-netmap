@@ -71,31 +71,27 @@ def get_buf(r, buf_idx):
 
 def process_slot(r, s):
     s.flags |= netmap.NS_FORWARD
-    buf_ptr = get_buf(r, s.buf_idx)
-    buf = ffi.buffer(buf_ptr, s.len)
+    buf = ffi.buffer(get_buf(r, s.buf_idx), s.len)
+
     eth = Eth.cls_unpack_from(buf)
     offset = Eth.struct.size
     if eth.type == dpkt.ethernet.ETH_TYPE_IP:
-        ip = Ip.cls_unpack_from(buf, offset)
+        ip = Ip.cls_unpack_from(buf[offset:])
+        offset += Ip.struct.size
         if ip.p == dpkt.ip.IP_PROTO_UDP:
-            offset += Udp.struct.size
-            udp = Udp.cls_unpack_from(buf, offset)
+            udp = Udp.cls_unpack_from(buf[offset:])
         elif ip.p == dpkt.ip.IP_PROTO_TCP:
-            offset += Tcp.struct.size
-            tcp = Tcp.cls_unpack_from(buf, offset)
-        if ip.p == dpkt.ip.IP_PROTO_ICMP:
-            offset += Icmp.struct.size
-            icmp = Icmp.cls_unpack_from(buf, offset)
+            tcp = Tcp.cls_unpack_from(buf[offset:])
+        elif ip.p == dpkt.ip.IP_PROTO_ICMP:
+            icmp = Icmp.cls_unpack_from(buf[offset:])
             s.flags ^= netmap.NS_FORWARD
-    if eth.type == dpkt.ethernet.ETH_TYPE_IP6:
-        ip6 = Ip6.cls_unpack_from(buf, offset)
-
 
 
 def process_ring(r):
     processed, i, tail = 0, r.cur, r.tail
     while i != tail:
-        process_slot(r, r.slot[i])
+        slot = r.slot[i]
+        process_slot(r, slot)
         i = ring_next(r, i)
         processed += 1
     return processed
