@@ -37,6 +37,8 @@ Icmp = make_tuple(dpkt.icmp.ICMP)
 Ip6 = make_tuple(dpkt.ip6.IP6)
 Icmp6 = make_tuple(dpkt.icmp6.ICMP6)
 
+PORTS = {x:x for x in range(2048)}
+
 
 def insp(d):
     return {k: getattr(d, k) for k in dir(d)}
@@ -84,11 +86,14 @@ def process_slot(r, s):
 
     eth = Eth.cls_unpack_from(buf)
     offset = Eth.struct.size
+    port = 0
     if eth.type == dpkt.ethernet.ETH_TYPE_IP:
         ip = Ip.cls_unpack_from(buf[offset:])
         offset += Ip.struct.size
         if ip.p == dpkt.ip.IP_PROTO_UDP:
             udp = Udp.cls_unpack_from(buf[offset:])
+            if udp.sport in PORTS:
+                port = udp.sport + udp.dport
 
 
 def process_slot_fast(r, s):
@@ -96,12 +101,15 @@ def process_slot_fast(r, s):
     buf_ptr = get_buf(r, s.buf_idx)
     ethhdr = ffi.cast('struct ethhdr*', buf_ptr)
     offset = Eth.struct.size
+    port = 0
     if swap16(ethhdr.h_proto) == dpkt.ethernet.ETH_TYPE_IP:
         iphdr = ffi.cast('struct iphdr*', buf_ptr + offset)
         offset += Ip.struct.size
         if iphdr.protocol == dpkt.ip.IP_PROTO_UDP:
             udphdr = ffi.cast('struct udphdr*', buf_ptr + offset)
-            port = swap16(udphdr.uh_sport)
+            sport, dport = swap16(udphdr.uh_sport), swap16(udphdr.uh_dport)
+            if sport in PORTS:
+                port = sport + dport
 
 
 def process_ring(r):
